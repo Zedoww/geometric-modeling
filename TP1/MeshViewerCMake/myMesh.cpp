@@ -7,7 +7,6 @@
 #include <utility>
 #include <cmath>
 #include <limits>
-#include <GL/glew.h>
 #include "myVector3D.h"
 
 using namespace std;

@@ -1,8 +1,15 @@
 # Build artifacts
 TP1/MeshViewerCMake/build/
+build/
 
 # OBJ mesh files (data, not source)
 *.obj
 
 # PDF
 *.pdf
+
+# OS and IDE metadata
+.DS_Store
+.idea/
+.vs/
+*.user
