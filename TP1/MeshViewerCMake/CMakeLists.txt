@@ -37,6 +37,7 @@ if(GEOMETRIC_MODELING_BUILD_VIEWER)
         PRIVATE
             mesh_core
             OpenGL::GL
+            OpenGL::GLU
             GLEW::GLEW
             glm::glm
             GLUT::GLUT
