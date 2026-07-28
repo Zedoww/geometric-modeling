@@ -1,197 +1,120 @@
-# Geometric Modeling — Mesh Viewer (TP1)
+<div align="center">
 
-Visualiseur de maillages basé sur une structure de données **half-edge**, écrit en C++ /
-OpenGL. Le projet permet de charger des fichiers `.obj`, de les afficher de différentes
-manières (mesh, fil de fer, normales, silhouette) et d'appliquer plusieurs opérations
-géométriques (triangulation, surface de révolution, simplification…).
+# Geometric Modeling
 
-> Le menu principal s'ouvre par un **clic droit** dans la fenêtre. Les compteurs
-> *Vertices / Halfedges / Faces* affichés en bas à gauche permettent de vérifier l'effet
-> de chaque opération.
+**A cross-platform C++ mesh viewer built around a half-edge data structure.**
 
----
+[![CI](https://github.com/Zedoww/geometric-modeling/actions/workflows/ci.yml/badge.svg)](https://github.com/Zedoww/geometric-modeling/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/Zedoww/geometric-modeling/actions/workflows/codeql.yml/badge.svg)](https://github.com/Zedoww/geometric-modeling/actions/workflows/codeql.yml)
+[![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C.svg)](https://isocpp.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-22c55e.svg)](LICENSE)
 
-## Compilation & exécution
+![Catmull-Clark subdivision wireframe](docs/images/catmullclark-3-wireframe.png)
 
-```bash
-cd TP1/MeshViewerCMake
-cmake -S . -B build
-cmake --build build
-cd build && ./MeshViewer
+</div>
+
+This project loads Wavefront OBJ meshes, represents their topology with
+half-edges, and exposes common geometry-processing operations through an
+OpenGL viewer. The implementation focuses on topology invariants, portable
+builds, and visible before/after results.
+
+## Highlights
+
+- OBJ loading with automatic twin reconstruction and mesh normalization
+- Per-face and per-vertex normal computation
+- View-dependent silhouette detection
+- Convex and concave polygon triangulation using ear clipping
+- Surface-of-revolution mesh generation
+- Shortest-edge-collapse simplification
+- Catmull-Clark subdivision with boundary handling
+- Automated half-edge invariant tests
+
+## Results
+
+| Operation | Before | After |
+| --- | --- | --- |
+| Concave triangulation | ![Concave polygon](docs/images/triangulation-concave-before.png) | ![Triangulated polygon](docs/images/triangulation-concave-after.png) |
+| Edge-collapse simplification | ![Original gear](docs/images/simplify-before.png) | ![Simplified gear](docs/images/simplify-after.png) |
+| Catmull-Clark subdivision | ![Original cube](docs/images/catmullclark-0.png) | ![Subdivided cube](docs/images/catmullclark-3.png) |
+
+Additional captures are available in [`docs/images`](docs/images).
+
+## Architecture
+
+```text
+TP1/MeshViewerCMake/
+|-- myMesh.*           Half-edge ownership and geometry algorithms
+|-- myHalfedge.*       Directed-edge topology
+|-- myFace.*           Face adjacency and normal computation
+|-- myVertex.*         Vertex geometry and incident-edge access
+|-- main.cpp           OpenGL/GLUT viewer and interaction
+`-- test_mesh.cpp      Topology and algorithm regression tests
 ```
 
-Dépendances : **OpenGL**, **GLEW**, **GLM**, **GLUT**.
-Sous macOS (Homebrew) : `brew install glew glm`. Sous Linux/Windows : `freeglut` en plus.
+`mesh_core` contains the geometry implementation without a window-system
+dependency. The viewer adds OpenGL, GLEW, GLM, and GLUT on top of that core.
 
----
+## Build
 
-## État des objectifs
+Requirements:
 
-| Objectif | État | Capture |
-|---|---|---|
-| `readFile` (chargement `.obj`) | ✅ Fait | ✔ |
-| `computeNormals` | ✅ Fait | ✔ |
-| Silhouette | ✅ Fait | ✔ |
-| Triangulation — faces **convexes** | ✅ Fait | ✔ |
-| Triangulation — faces **concaves** | ✅ Fait (*ear clipping*) | ✔ |
-| Triangulation — polygones à **trous** (expert, optionnel) | ❌ Non traité | — |
-| Tests de la structure half-edge | ✅ Fait (`checkMesh`) | — |
-| Surface de révolution | ✅ Fait | ✔ |
-| Simplification (*shortest edge collapse*) | ✅ Fait | ✔ |
-| Subdivision Catmull-Clark | ✅ Fait | ✔ |
+- CMake 3.20 or newer
+- A C++17 compiler
+- OpenGL, GLEW, GLM, and GLUT/FreeGLUT
 
----
-
-## Détail des méthodes
-
-### `readFile` — chargement d'un maillage `.obj`
-
-Lecture ligne par ligne du fichier : les sommets (`v`) deviennent des `myVertex`, et chaque
-face (`f`) crée ses demi-arêtes. Les **twins** sont reconstruits à la volée grâce à une
-`map<pair<int,int>, myHalfedge*>` : quand l'arête `(b, a)` existe déjà, on la relie à `(a, b)`.
-Le maillage est ensuite recentré et mis à l'échelle par `normalize()`.
-
-Le chargement se fait au démarrage (`apple.obj`) ou via le menu **Open File**.
-
-![readFile](docs/images/readfile.png)
-
----
-
-### `computeNormals`
-
-Calcule d'abord la normale de chaque face, puis la normale de chaque sommet (moyenne des
-faces adjacentes parcourues via la structure half-edge). Les normales par sommet servent au
-*smooth shading*, celles par face au *flat shading*.
-
-Ci-dessous : ombrage lissé + affichage des normales par sommet (menu **Normals**).
-
-![computeNormals](docs/images/compute-normals.png)
-
----
-
-### Silhouette
-
-Une arête est une arête de silhouette si elle sépare une face tournée **vers** la caméra
-d'une face tournée **dos** à la caméra. On le détecte en comparant le signe du produit
-scalaire entre la direction caméra→arête et les normales des deux faces adjacentes
-(`res1 < 0 != res2 < 0`). Les arêtes trouvées sont tracées en rouge.
-
-![Silhouette](docs/images/silhouette.png)
-
----
-
-### Triangulation (*ear clipping*)
-
-Algorithme de découpage d'oreilles, robuste aux faces **convexes comme concaves**. La normale
-de la face est calculée par la formule de Newell, ce qui rend le test « l'oreille est-elle
-convexe ? » et « contient-elle un autre sommet ? » valides en 3D quelle que soit l'orientation.
-
-**Faces convexes** — un octogone découpé en triangles :
-
-| Avant | Après |
-|---|---|
-| ![octogone](docs/images/triangulation-convex-before.png) | ![octogone triangulé](docs/images/triangulation-convex-after.png) |
-
-**Faces concaves** — *ear clipping* qui évite les oreilles non valides :
-
-| Avant | Après |
-|---|---|
-| ![concave](docs/images/triangulation-concave-before.png) | ![concave triangulé](docs/images/triangulation-concave-after.png) |
-
-> Le cas **expert** (polygones avec trous) n'a pas été traité — il était optionnel.
-
----
-
-### Tests de la structure half-edge
-
-`checkMesh()` vérifie les principaux invariants de la structure à chaque chargement et après
-les opérations : présence du **twin** (`twin->twin == h`, `twin != h`, `twin->source ==
-next->source`), réciprocité des liens **next/prev**, cohérence de l'**adjacent_face** le long
-de chaque boucle de face, et validité du champ **originof** des sommets. Le bilan est affiché
-en console, en distinguant un maillage fermé valide d'un maillage ouvert (où seules les arêtes
-de bord n'ont pas de twin).
-
-Une petite suite de tests automatisés accompagne le projet :
+Install dependencies:
 
 ```bash
-cmake --build build --target MeshViewerTests
-./build/MeshViewerTests
+# Ubuntu / Debian
+sudo apt-get install cmake g++ libgl1-mesa-dev libglew-dev libglm-dev freeglut3-dev
+
+# macOS
+brew install cmake glew glm
+
+# Windows with vcpkg
+vcpkg install glew:x64-windows glm:x64-windows freeglut:x64-windows
 ```
 
----
+Configure, build, and test:
 
-### Surface de révolution
+```bash
+cmake -S TP1/MeshViewerCMake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release
+ctest --test-dir build -C Release --output-on-failure
+```
 
-`revolution()` génère un maillage en faisant tourner un profil 2D autour de l'axe Y
-(20 tranches). Chaque couple (tranche, segment de profil) produit une face quadrilatère, et les
-twins sont reliés via la même technique de `map` que `readFile`.
+On Windows, also pass the vcpkg toolchain file during configuration:
 
-![Révolution](docs/images/revolution.png)
+```powershell
+cmake -S TP1/MeshViewerCMake -B build `
+  -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" `
+  -DVCPKG_TARGET_TRIPLET=x64-windows
+```
 
----
+Launch `MeshViewer` from the build directory. Right-click inside the window to
+open the operation menu.
 
-### Simplification — *shortest edge collapse*
+To work only on the geometry core and tests without installing graphics
+dependencies, disable the viewer:
 
-À chaque itération on cherche **l'arête la plus courte**, on fusionne ses deux sommets en leur
-milieu, puis on reconstruit proprement le maillage (faces dégénérées supprimées, twins
-recalculés). Le menu **Simplification** réduit le maillage d'environ 10 % de ses faces par appel.
+```bash
+cmake -S TP1/MeshViewerCMake -B build -DGEOMETRIC_MODELING_BUILD_VIEWER=OFF
+cmake --build build --config Release
+ctest --test-dir build -C Release --output-on-failure
+```
 
-Exemple sur `gear.obj` (triangulé) après plusieurs passes — les compteurs en bas à gauche
-montrent la diminution du nombre de faces :
+## Test coverage
 
-| Avant | Après |
-|---|---|
-| ![gear](docs/images/simplify-before.png) | ![gear simplifié](docs/images/simplify-after.png) |
+The regression executable validates loading, twin reciprocity, face-loop
+consistency, triangulation, simplification, subdivision, and open-boundary
+behavior. CI builds the project and runs the suite on Linux, macOS, and Windows.
 
----
+## Project context
 
-### Subdivision Catmull-Clark
+This project was developed as an academic geometric-modeling assignment. AI
+tools were used for targeted portability troubleshooting and as a learning aid;
+the implementation choices, integration, and validation remain the author's.
 
-`subdivisionCatmullClark()` raffine le maillage en suivant les trois règles classiques :
+## License
 
-- **Face point** : barycentre des sommets de chaque face.
-- **Edge point** : moyenne des deux extrémités de l'arête et des deux face points voisins
-  (milieu de l'arête sur les bords).
-- **Vertex point** : nouvelle position de chaque sommet d'origine,
-  `(F + 2R + (n-3)P) / n`, où `F` est la moyenne des face points adjacents, `R` la moyenne
-  des milieux d'arêtes incidentes, `P` l'ancienne position et `n` la valence (règle de bord
-  dédiée pour les maillages ouverts).
-
-Chaque face d'origine est remplacée par un quad par sommet, reliant *vertex point → edge point
-→ face point → edge point précédent*. Chaque appel quadruple le nombre de faces. Sur un cube,
-le maillage converge vers une surface lisse (6 → 24 → 96 → 384 faces) :
-
-| Cube (départ) | 1 itération | 2 itérations | 3 itérations (lissé) |
-|---|---|---|---|
-| ![cc0](docs/images/catmullclark-0.png) | ![cc1](docs/images/catmullclark-1.png) | ![cc2](docs/images/catmullclark-2.png) | ![cc3](docs/images/catmullclark-3.png) |
-
-Le fil de fer de la résolution la plus fine (3 itérations, 384 faces, 386 sommets) confirme que
-la topologie est régulière : une grille de quadrilatères propre, sans face dégénérée.
-
-![cc3 wireframe](docs/images/catmullclark-3-wireframe.png)
-
----
-
-## Note sur l'utilisation de l'IA
-
-Je développe sur **MacBook M1** et sur **Windows**. J'ai dû faire des choix de portabilité, et
-j'ai choisi de travailler principalement sur **macOS**.
-
-Le principal point de friction a été **OpenGL / GLUT sous macOS**, où j'ai rencontré quelques
-bugs de compatibilité (2-3). L'IA m'a aidé à les corriger :
-
-- **VAO sous macOS** : sur le profil de compatibilité Apple, `glGenVertexArrays` /
-  `glBindVertexArray` / `glDeleteVertexArrays` ne sont pas disponibles tels quels. Il a fallu
-  les rediriger vers leurs variantes `…APPLE` (voir le bloc `#if defined(__APPLE__)` en tête de
-  `main.cpp`).
-- **GLUT natif vs FreeGLUT** : sous macOS on lie le *framework* `GLUT` (Cocoa, sans X11), alors
-  que sous Linux/Windows on utilise `freeglut`. Cette séparation est gérée dans le
-  `CMakeLists.txt` (`if(APPLE) … else() …`).
-- **GLEW via Homebrew** : chemins d'include et de lib pointés vers `/opt/homebrew`.
-- **Boîte de dialogue d'ouverture de fichier** : sous macOS, `openFileDialog()` utilise
-  `osascript` (AppleScript) pour afficher un sélecteur de fichiers natif.
-
-Pour **le reste des exercices** (algorithmes de modélisation géométrique : half-edge,
-*ear clipping*, révolution, simplification…), je me suis servi de l'IA **comme un outil et un
-compagnon de travail**, à la manière d'un professeur particulier : pour **comprendre** les
-algorithmes et leur logique. L'implémentation et les choix restent les miens.
+[MIT](LICENSE) - copyright Allan Seddi.

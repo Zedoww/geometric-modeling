@@ -2,7 +2,6 @@
 #include "myVector3D.h"
 #include "myHalfedge.h"
 #include "myVertex.h"
-#include <GL/glew.h>
 
 myFace::myFace(void)
 {
